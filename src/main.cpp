@@ -1,13 +1,14 @@
 #include <chrono>
 #include <memory>
 #include <print>
+#include <stdexec/__detail/__execution_fwd.hpp>
 #include <thread>
 #include <utility>
 
 #include <SFML/Graphics.hpp>
 
 #include <exec/any_sender_of.hpp>
-#include <exec/repeat_effect_until.hpp>
+#include <exec/repeat_until.hpp>
 #include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>
 
@@ -41,6 +42,10 @@ private:
     const std::chrono::milliseconds frame_time_ = 1ms;
 };
 
+template <class... CompletionSigs>
+using any_sender_of =
+  exec::any_sender<exec::any_receiver<stdexec::completion_signatures<CompletionSigs...>>>;
+
 class MandelbrotApp {
 public:
     MandelbrotApp() : compute_pool_{std::max(1u, std::thread::hardware_concurrency())}, sfml_thread_{1} {
@@ -59,10 +64,22 @@ public:
                    }));
         ex::sync_wait(std::move(initialize));
 
-        auto process_frame = ex::just(); // Ваш код здесь
+        using conditional_sender =
+            any_sender_of<ex::set_value_t(FrameBuffer *), ex::set_stopped_t()>;
+        auto process_frame =
+            SfmlEventHandler(state_->window, state_->render_settings, state_->app_state) |
+            ex::let_value([this] -> conditional_sender {
+                if (state_->app_state.need_rerender) {
+                    return ex::just(&state_->fb);
+                }
+                return ex::just_stopped();
+            }) |
+            mandelbrot::MakeComputeSender(state_->render_settings, state_->app_state.viewport) |
+            render::MakeSfmlDisplaySender(*state_) |
+            ex::then([this] { WaitForFPS{state_->frame_clock, static_cast<unsigned int>(WaitForFPS::TARGET_FPS)}(); });
 
         auto repeated_pipeline = std::move(process_frame) | ex::then([this] { return state_->app_state.should_exit; }) |
-                                 exec::repeat_effect_until();
+                                 exec::repeat_until();
         ex::sync_wait(std::move(repeated_pipeline));
     }
 

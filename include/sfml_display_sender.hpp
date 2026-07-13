@@ -1,8 +1,12 @@
 #pragma once
 
 #include "types_sfml.hpp"
+#include <SFML/Graphics/Sprite.hpp>
+#include <print>
 
 #include <stdexec/execution.hpp>
+
+namespace ex = stdexec;
 
 namespace render {
 
@@ -11,7 +15,7 @@ static auto MakeSfmlDisplaySender(SfmlState &st) {
     return ex::then([&](FrameBuffer *fb) {
         time_counter.Start();
         st.texture.update(fb->rgba.data());
-
+        st.sprite = sf::Sprite(st.texture);
         st.window.clear();
         st.window.draw(st.sprite);
         st.window.display();
