@@ -77,11 +77,13 @@ public:
                     state_->app_state.need_rerender = false;
                     return ex::just(&state_->fb);
                 }
+                // Use error to go to the pipeline end to keep the structure flat
                 return ex::just_error(std::make_error_code(std::errc::broken_pipe));
             }) |
             ex::continues_on(compute_sched) |
             ex::let_value([this](FrameBuffer *buf) {
                 return ex::just(buf) |
+                    // Get updated viewport on each cycle
                     mandelbrot::MakeComputeSender(state_->render_settings, state_->app_state.viewport);
             }) |
             ex::continues_on(sfml_sched) |
@@ -92,7 +94,7 @@ public:
             auto repeated_pipeline = std::move(process_frame) |
                 ex::then([this] { return state_->app_state.should_exit; }) |
                 exec::repeat_until();
-            // clang-format on
+        // clang-format on
         ex::sync_wait(std::move(repeated_pipeline));
 
         auto deinitialize =

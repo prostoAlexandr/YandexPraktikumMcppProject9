@@ -11,7 +11,6 @@
 
 #include "types_core.hpp"
 #include "types_sfml.hpp"
-#include <print>
 
 namespace ex = stdexec;
 
@@ -64,6 +63,7 @@ public:
                     break;
                 case sf::Event::MouseButtonReleased:
                     HandleMouseRelease(event.mouseButton);
+                    break;
                 default:
                     break;
                 }

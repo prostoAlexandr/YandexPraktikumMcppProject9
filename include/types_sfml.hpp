@@ -32,7 +32,7 @@ struct FrameBuffer {
 // Must be created and accessed only from SFML thread
 //
 struct SfmlState {
-    const RenderSettings render_settings;
+    RenderSettings render_settings;
     AppState app_state;
 
     sf::RenderWindow window;

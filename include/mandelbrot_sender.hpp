@@ -15,14 +15,14 @@ namespace mandelbrot {
 static auto MakeComputeSender(RenderSettings settings, ViewPort viewport) {
     static AvrTimeCounter time_counter;
 
-    return ex::then([settings, viewport](FrameBuffer *fb) {
+    return ex::then([](FrameBuffer *fb) {
                time_counter.Start();
                return fb;
            }) |
            ex::bulk(ex::par, settings.height,
                     [settings, viewport](uint32_t idx, FrameBuffer *fb) {
                         for (uint32_t x = 0; x < settings.width; ++x) {
-                            auto comp = mandelbrot::Pixel2DToComplex(x, idx, viewport, fb->width, fb->height);
+                            auto comp = mandelbrot::Pixel2DToComplex(x, idx, viewport, settings.width, settings.height);
                             auto iterations = mandelbrot::CalculateIterationsForPoint(comp, settings.max_iterations,
                                                                                       settings.escape_radius);
                             auto color = mandelbrot::IterationsToColor(iterations, settings.max_iterations);
