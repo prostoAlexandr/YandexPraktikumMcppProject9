@@ -37,8 +37,8 @@ public:
             try {
                 HandleEvents();
                 if (state_.should_exit){
-                    window_.close();
                     ex::set_stopped(std::move(receiver_));
+                    return;
                 }
                 ex::set_value(std::move(receiver_));
             } catch (...) {

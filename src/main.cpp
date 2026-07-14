@@ -60,7 +60,7 @@ public:
         auto initialize =
             ex::schedule(sfml_sched) | ex::then([this]() {
                 state_ = std::make_unique<SfmlState>(  //
-                    RenderSettings{.width = 800, .height = 600, .max_iterations = 100, .escape_radius = 2.0});
+                    RenderSettings{.width = 800, .height = 600, .max_iterations = 200, .escape_radius = 4.0});
             });
         ex::sync_wait(std::move(initialize));
 
@@ -94,6 +94,13 @@ public:
                 exec::repeat_until();
             // clang-format on
         ex::sync_wait(std::move(repeated_pipeline));
+
+        auto deinitialize =
+            ex::schedule(sfml_sched) | ex::then([this]() {
+                state_->window.close();
+                state_.reset();
+            });
+        ex::sync_wait(std::move(deinitialize));
     }
 
 private:
