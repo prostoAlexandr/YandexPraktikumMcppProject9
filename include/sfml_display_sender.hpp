@@ -1,8 +1,12 @@
 #pragma once
 
 #include "types_sfml.hpp"
+#include <SFML/Graphics/Sprite.hpp>
+#include <print>
 
 #include <stdexec/execution.hpp>
+
+namespace ex = stdexec;
 
 namespace render {
 

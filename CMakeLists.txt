@@ -67,6 +67,8 @@ target_link_libraries(${PROJECT_NAME}_tests PRIVATE
     ${PROJECT_NAME}_imp
     GTest::GTest
     GTest::Main
+    GTest::gmock
+    GTest::gmock_main
     STDEXEC::stdexec
     sfml-graphics sfml-window sfml-system)
 

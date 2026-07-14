@@ -1,13 +1,15 @@
 #include <chrono>
 #include <memory>
 #include <print>
+#include <stdexec/__detail/__execution_fwd.hpp>
+#include <system_error>
 #include <thread>
 #include <utility>
 
 #include <SFML/Graphics.hpp>
 
 #include <exec/any_sender_of.hpp>
-#include <exec/repeat_effect_until.hpp>
+#include <exec/repeat_until.hpp>
 #include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>
 
@@ -25,7 +27,7 @@ public:
     static constexpr float FRAME_TIME_MS = 1000.0f / TARGET_FPS;
 
     explicit WaitForFPS(FrameClock &frame_clock, unsigned int target_fps)
-        : frame_clock_(frame_clock), frame_time_(1s / target_fps) {}
+        : frame_clock_(frame_clock), frame_time_(1'000'000us / target_fps) {}
 
     void operator()() {
         auto cur_frame_duration = frame_clock_.GetFrameTime();
@@ -38,8 +40,12 @@ public:
 
 private:
     FrameClock &frame_clock_;
-    const std::chrono::milliseconds frame_time_ = 1ms;
+    const std::chrono::microseconds frame_time_ = 1ms;
 };
+
+template <class... CompletionSigs>
+using any_sender_of =
+  exec::any_sender<exec::any_receiver<stdexec::completion_signatures<CompletionSigs...>>>;
 
 class MandelbrotApp {
 public:
@@ -52,18 +58,51 @@ public:
         auto sfml_sched = sfml_thread_.get_scheduler();
 
         auto initialize =
-            ex::on(sfml_sched,
-                   ex::just() | ex::then([this]() {
-                       state_ = std::make_unique<SfmlState>(  //
-                           RenderSettings{.width = 800, .height = 600, .max_iterations = 100, .escape_radius = 2.0});
-                   }));
+            ex::schedule(sfml_sched) | ex::then([this]() {
+                state_ = std::make_unique<SfmlState>(  //
+                    RenderSettings{.width = 800, .height = 600, .max_iterations = 200, .escape_radius = 4.0});
+            });
         ex::sync_wait(std::move(initialize));
 
-        auto process_frame = ex::just(); // Ваш код здесь
+        using conditional_sender =
+        any_sender_of<ex::set_value_t(FrameBuffer *), ex::set_error_t(std::error_code)>;
+        // clang-format off
+        auto process_frame =
+            ex::schedule(sfml_sched) |
+            ex::let_value([this] {
+                return SfmlEventHandler(state_->window, state_->render_settings, state_->app_state);
+            }) |
+            ex::let_value([this] -> conditional_sender {
+                if (state_->app_state.need_rerender) {
+                    state_->app_state.need_rerender = false;
+                    return ex::just(&state_->fb);
+                }
+                // Use error to go to the pipeline end to keep the structure flat
+                return ex::just_error(std::make_error_code(std::errc::broken_pipe));
+            }) |
+            ex::continues_on(compute_sched) |
+            ex::let_value([this](FrameBuffer *buf) {
+                return ex::just(buf) |
+                    // Get updated viewport on each cycle
+                    mandelbrot::MakeComputeSender(state_->render_settings, state_->app_state.viewport);
+            }) |
+            ex::continues_on(sfml_sched) |
+            render::MakeSfmlDisplaySender(*state_) |
+            ex::upon_error([](auto err) {}) |
+            ex::then([this] { WaitForFPS{state_->frame_clock, static_cast<unsigned int>(WaitForFPS::TARGET_FPS)}(); });
 
-        auto repeated_pipeline = std::move(process_frame) | ex::then([this] { return state_->app_state.should_exit; }) |
-                                 exec::repeat_effect_until();
+            auto repeated_pipeline = std::move(process_frame) |
+                ex::then([this] { return state_->app_state.should_exit; }) |
+                exec::repeat_until();
+        // clang-format on
         ex::sync_wait(std::move(repeated_pipeline));
+
+        auto deinitialize =
+            ex::schedule(sfml_sched) | ex::then([this]() {
+                state_->window.close();
+                state_.reset();
+            });
+        ex::sync_wait(std::move(deinitialize));
     }
 
 private:
