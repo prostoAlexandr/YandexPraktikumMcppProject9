@@ -11,6 +11,7 @@
 
 #include "types_core.hpp"
 #include "types_sfml.hpp"
+#include <print>
 
 namespace ex = stdexec;
 
@@ -21,7 +22,7 @@ public:
     struct OperationState {
         Receiver receiver_;
         sf::RenderWindow &window_;
-        RenderSettings render_settings_;
+        const RenderSettings render_settings_;
         AppState &state_;
 
         static constexpr float ZOOM_INTERVAL_MS = 100.0f;
@@ -35,8 +36,8 @@ public:
         void start() noexcept {
             try {
                 HandleEvents();
-                if (state_.should_exit)
-                {
+                if (state_.should_exit){
+                    window_.close();
                     ex::set_stopped(std::move(receiver_));
                 }
                 ex::set_value(std::move(receiver_));
@@ -76,12 +77,17 @@ public:
             case sf::Keyboard::X:
                 if (!state_.auto_zoom_enabled) {
                     state_.auto_zoom_enabled = true;
-                }else{
+                } else {
                     state_.auto_zoom_enabled = false;
                 }
+                break;
             case sf::Keyboard::C:
                 state_.viewport = AppState::INITIAL_VIEWPORT;
                 state_.auto_zoom_enabled = false;
+                state_.need_rerender = true;
+                break;
+            default:
+                break;
             }
         }
 
@@ -89,10 +95,10 @@ public:
             /* Ваш код здесь */
             if (mouse.button == sf::Mouse::Left && !state_.left_mouse_pressed) {
                 state_.left_mouse_pressed = true;
-                ZoomToPoint(mouse.x, mouse.y, true);
+                ZoomToCoord(mouse.x, mouse.y, true);
             } else if (mouse.button == sf::Mouse::Right && !state_.right_mouse_pressed) {
                 state_.right_mouse_pressed = true;
-                ZoomToPoint(mouse.x, mouse.y, false);
+                ZoomToCoord(mouse.x, mouse.y, false);
             }
         }
 
@@ -112,12 +118,15 @@ public:
             }
         }
 
-        void ZoomToPoint(int pixel_x, int pixel_y, bool zoom_in, double factor = 0.8) {
+        void ZoomToCoord(int pixel_x, int pixel_y, bool zoom_in, double factor = 0.8) {
             const double target_x = state_.viewport.x_min +
                                     (static_cast<double>(pixel_x) / render_settings_.width) * state_.viewport.width();
             const double target_y = state_.viewport.y_min +
                                     (static_cast<double>(pixel_y) / render_settings_.height) * state_.viewport.height();
+            ZoomToPoint(target_x, target_y, zoom_in, factor);
+        }
 
+        void ZoomToPoint(double target_x, double target_y, bool zoom_in, double factor = 0.8) {
             const double zoom_factor = zoom_in ? factor : (1.0 / factor);
             const double new_width = state_.viewport.width() * zoom_factor;
             const double new_height = state_.viewport.height() * zoom_factor;
@@ -132,7 +141,7 @@ public:
     };
 
     sf::RenderWindow &window_;
-    RenderSettings render_settings_;
+    const RenderSettings render_settings_;
     AppState &state_;
     using sender_concept = stdexec::sender_t;
 

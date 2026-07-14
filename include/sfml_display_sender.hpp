@@ -15,7 +15,7 @@ static auto MakeSfmlDisplaySender(SfmlState &st) {
     return ex::then([&](FrameBuffer *fb) {
         time_counter.Start();
         st.texture.update(fb->rgba.data());
-        st.sprite = sf::Sprite(st.texture);
+
         st.window.clear();
         st.window.draw(st.sprite);
         st.window.display();

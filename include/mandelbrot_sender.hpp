@@ -4,6 +4,7 @@
 #include "types_sfml.hpp"
 #include <print>
 
+#include <stdexec/__detail/__execution_fwd.hpp>
 #include <stdexec/execution.hpp>
 
 using namespace std::chrono_literals;
@@ -13,28 +14,27 @@ namespace mandelbrot {
 
 static auto MakeComputeSender(RenderSettings settings, ViewPort viewport) {
     static AvrTimeCounter time_counter;
-    static constexpr double R = 2.0;
-    static constexpr uint32_t n = 100;
 
-    return ex::then([&](FrameBuffer *fb) {
+    return ex::then([settings, viewport](FrameBuffer *fb) {
                time_counter.Start();
-               for (uint32_t x = 0; x < fb->width; ++x) {
-                   for (uint32_t y = 0; y < fb->height; ++y) {
-                       auto comp = mandelbrot::Pixel2DToComplex(x, y, viewport, fb->width, fb->height);
-                       auto iterations = mandelbrot::CalculateIterationsForPoint(comp, n, R);
-                       if (iterations < n) {
-                           continue;
-                       }
-
-                       const size_t index = (y * fb->width + x) * 4;
-                       fb->rgba[index] = 0;
-                       fb->rgba[index + 1] = 0;
-                       fb->rgba[index + 2] = 0;
-                       fb->rgba[index + 3] = 0;
-                   }
-               }
                return fb;
            }) |
+           ex::bulk(ex::par, settings.height,
+                    [settings, viewport](uint32_t idx, FrameBuffer *fb) {
+                        for (uint32_t x = 0; x < settings.width; ++x) {
+                            auto comp = mandelbrot::Pixel2DToComplex(x, idx, viewport, fb->width, fb->height);
+                            auto iterations = mandelbrot::CalculateIterationsForPoint(comp, settings.max_iterations,
+                                                                                      settings.escape_radius);
+                            auto color = mandelbrot::IterationsToColor(iterations, settings.max_iterations);
+                            const size_t index = (idx * settings.width + x) * 4;
+
+                            fb->rgba[index] = color.r;
+                            fb->rgba[index + 1] = color.g;
+                            fb->rgba[index + 2] = color.b;
+                            fb->rgba[index + 3] = 0xff;
+                        }
+                        return fb;
+                    }) |
            ex::then([](FrameBuffer *fb) {
                time_counter.End();
                if (time_counter.Count() % 10 == 0) {

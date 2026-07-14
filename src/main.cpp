@@ -2,6 +2,7 @@
 #include <memory>
 #include <print>
 #include <stdexec/__detail/__execution_fwd.hpp>
+#include <system_error>
 #include <thread>
 #include <utility>
 
@@ -26,7 +27,7 @@ public:
     static constexpr float FRAME_TIME_MS = 1000.0f / TARGET_FPS;
 
     explicit WaitForFPS(FrameClock &frame_clock, unsigned int target_fps)
-        : frame_clock_(frame_clock), frame_time_(1s / target_fps) {}
+        : frame_clock_(frame_clock), frame_time_(1'000'000us / target_fps) {}
 
     void operator()() {
         auto cur_frame_duration = frame_clock_.GetFrameTime();
@@ -39,7 +40,7 @@ public:
 
 private:
     FrameClock &frame_clock_;
-    const std::chrono::milliseconds frame_time_ = 1ms;
+    const std::chrono::microseconds frame_time_ = 1ms;
 };
 
 template <class... CompletionSigs>
@@ -57,29 +58,41 @@ public:
         auto sfml_sched = sfml_thread_.get_scheduler();
 
         auto initialize =
-            ex::on(sfml_sched,
-                   ex::just() | ex::then([this]() {
-                       state_ = std::make_unique<SfmlState>(  //
-                           RenderSettings{.width = 800, .height = 600, .max_iterations = 100, .escape_radius = 2.0});
-                   }));
+            ex::schedule(sfml_sched) | ex::then([this]() {
+                state_ = std::make_unique<SfmlState>(  //
+                    RenderSettings{.width = 800, .height = 600, .max_iterations = 100, .escape_radius = 2.0});
+            });
         ex::sync_wait(std::move(initialize));
 
         using conditional_sender =
-            any_sender_of<ex::set_value_t(FrameBuffer *), ex::set_stopped_t()>;
+        any_sender_of<ex::set_value_t(FrameBuffer *), ex::set_error_t(std::error_code)>;
+        // clang-format off
         auto process_frame =
-            SfmlEventHandler(state_->window, state_->render_settings, state_->app_state) |
+            ex::schedule(sfml_sched) |
+            ex::let_value([this] {
+                return SfmlEventHandler(state_->window, state_->render_settings, state_->app_state);
+            }) |
             ex::let_value([this] -> conditional_sender {
                 if (state_->app_state.need_rerender) {
+                    state_->app_state.need_rerender = false;
                     return ex::just(&state_->fb);
                 }
-                return ex::just_stopped();
+                return ex::just_error(std::make_error_code(std::errc::broken_pipe));
             }) |
-            mandelbrot::MakeComputeSender(state_->render_settings, state_->app_state.viewport) |
+            ex::continues_on(compute_sched) |
+            ex::let_value([this](FrameBuffer *buf) {
+                return ex::just(buf) |
+                    mandelbrot::MakeComputeSender(state_->render_settings, state_->app_state.viewport);
+            }) |
+            ex::continues_on(sfml_sched) |
             render::MakeSfmlDisplaySender(*state_) |
+            ex::upon_error([](auto err) {}) |
             ex::then([this] { WaitForFPS{state_->frame_clock, static_cast<unsigned int>(WaitForFPS::TARGET_FPS)}(); });
 
-        auto repeated_pipeline = std::move(process_frame) | ex::then([this] { return state_->app_state.should_exit; }) |
-                                 exec::repeat_until();
+            auto repeated_pipeline = std::move(process_frame) |
+                ex::then([this] { return state_->app_state.should_exit; }) |
+                exec::repeat_until();
+            // clang-format on
         ex::sync_wait(std::move(repeated_pipeline));
     }
 
