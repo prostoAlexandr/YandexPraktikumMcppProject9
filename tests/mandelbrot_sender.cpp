@@ -9,8 +9,8 @@
 namespace ex = stdexec;
 
 struct MockCounter {
-    MOCK_METHOD(void, value_set, (), ());
-    MOCK_METHOD(void, error_set, (), ());
+    MOCK_METHOD(void, value_set, (), (noexcept));
+    MOCK_METHOD(void, error_set, (), (noexcept));
 };
 
 struct MockReceiver {
